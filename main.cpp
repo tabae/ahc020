@@ -142,7 +142,7 @@ namespace Utils {
     long long calcSquaredDist(const pl& a, const pl& b);
     long long calcCost(const Output& output);
     vector<ll> getMST();
-    vector<ll> getDijkstraPath();
+    pair<vector<ll>,vector<pl>> getDijkstraPath(const vector<ll>& b);
     tuple<ll,ll,ll,ll> getCorners();
 };
 
@@ -164,7 +164,7 @@ int main() {
     return 0;
 }
 
-vector<ll> getDijkstraPath(const vector<ll>& p, const vector<ll>& _b) {
+pair<vector<ll>, vector<pl>> Utils::getDijkstraPath(const vector<ll>& _b) {
     vector<ll> b = _b;
     auto G = Utils::generateGraph(b);
     vector<pl> from(input.n);
@@ -185,17 +185,7 @@ vector<ll> getDijkstraPath(const vector<ll>& p, const vector<ll>& _b) {
             }
         }
     }
-    vector<ll> nb(input.m, 0);
-    rep(i, 0, input.n) {
-        if(p[i] == 0) continue;
-        ll cur = i;
-        while(cur != 0) {
-            auto [nxt, id] = from[cur];
-            nb[id] = 1;
-            cur = nxt;
-        }
-    }
-    return nb;
+    return make_pair(dist, from);
 }
 
 tuple<ll,ll,ll,ll> Utils::getCorners() {
@@ -328,6 +318,7 @@ long long Utils::calcScore(const Output& output) {
 State State::initState(ll num_unit) {
     State res;
     res.output.b = Utils::getMST();
+    auto [dist, from] = Utils::getDijkstraPath(res.output.b);
     auto [min_x, max_x, min_y, max_y] = Utils::getCorners();
     ll len_x = max_x - min_x;
     ll len_y = max_y - min_y;
@@ -386,9 +377,14 @@ State State::initState(ll num_unit) {
             pl center = {x_center, y_center};
             ll center_node = -1, min_dist = inf;
             for(auto i : node_group[id]) {
-                ll dist = Utils::calcSquaredDist(center, input.nodes[i]);
-                if(dist < min_dist) {
-                    min_dist = dist;
+                ll cur_dist = dist[i];
+                ll max_dist = 0;
+                for(auto j : house_group[id]) {
+                    chmax(max_dist, Utils::calcSquaredDist(input.nodes[i], input.houses[j]));
+                }
+                cur_dist += max_dist;
+                if(cur_dist < min_dist) {
+                    min_dist = cur_dist;
                     center_node = i;
                 }
             }
@@ -406,7 +402,17 @@ State State::initState(ll num_unit) {
             if(max_dist > 0) res.output.p[center_node] = isqrt(max_dist);
         }
     }
-    res.output.b = getDijkstraPath(res.output.p, res.output.b);
+    vector<ll> nb(input.m, 0);
+    rep(i, 0, input.n) {
+        if(res.output.p[i] == 0) continue;
+        ll cur = i;
+        while(cur != 0) {
+            auto [nxt, id] = from[cur];
+            nb[id] = 1;
+            cur = nxt;
+        }
+    }
+    res.output.b = nb;
     res.score = Utils::calcScore(res.output);
     return res;
 }
