@@ -118,7 +118,7 @@ struct State {
     Output output;
     long long score;
     State() : score(-inf) {};
-    static State initState(ll num_unit = 6);
+    static State initState(ll num_unit);
     static State generateState(const State& input_state);
 };
 
@@ -137,19 +137,20 @@ namespace Utils {
     long long calcScore(const Output& output);
     atcoder::dsu getUF(const Output& output);
     vector<bool> getIsConnect(const Output& output);
-    vector<vector<pl>> generateGraph(const Output& output);
+    vector<vector<tuple<ll,ll,ll>>> generateGraph(const vector<ll>& b);
     ll countCoveredHouse(const Output& output);
     long long calcSquaredDist(const pl& a, const pl& b);
     long long calcCost(const Output& output);
     vector<ll> getMST();
+    vector<ll> getDijkstraPath();
     tuple<ll,ll,ll,ll> getCorners();
 };
 
 int main() {
     toki.init();
     input.read();
-    State ans = State::initState();
-    ll best_num_unit = 6;
+    State ans = State::initState(5);
+    ll best_num_unit = 5;
     rep(num_unit, 3, 10) {
         State tmp = State::initState(num_unit);
         if(tmp.score > ans.score) {
@@ -161,6 +162,40 @@ int main() {
     dump(best_num_unit);
     cerr << "[INFO] - main - MyScore = " << ans.score << "\n";
     return 0;
+}
+
+vector<ll> getDijkstraPath(const vector<ll>& p, const vector<ll>& _b) {
+    vector<ll> b = _b;
+    auto G = Utils::generateGraph(b);
+    vector<pl> from(input.n);
+    vector<ll> dist(input.n, inf);
+    dist[0] = 0;
+    priority_queue<pl, vector<pl>, greater<pl>> que;
+    que.push({0, 0});
+    while(!que.empty()) {
+        auto [cost, pos] = que.top();
+        que.pop();
+        if(dist[pos] < cost) continue;
+        for(auto [to, w, idx] : G[pos]) {
+            ll ncost = cost + w;
+            if(ncost < dist[to]) {
+                dist[to] = ncost;
+                from[to] = {pos, idx};
+                que.push({ncost, to});
+            }
+        }
+    }
+    vector<ll> nb(input.m, 0);
+    rep(i, 0, input.n) {
+        if(p[i] == 0) continue;
+        ll cur = i;
+        while(cur != 0) {
+            auto [nxt, id] = from[cur];
+            nb[id] = 1;
+            cur = nxt;
+        }
+    }
+    return nb;
 }
 
 tuple<ll,ll,ll,ll> Utils::getCorners() {
@@ -260,13 +295,13 @@ vector<bool> Utils::getIsConnect(const Output& output) {
     return res;
 }
 
-vector<vector<pl>> Utils::generateGraph(const Output& output) {
-    vector<vector<pl>> G(input.n);
+vector<vector<tuple<ll,ll,ll>>> Utils::generateGraph(const vector<ll>& b) {
+    vector<vector<tuple<ll,ll,ll>>> G(input.n);
     rep(i, 0, input.m) {
-        if(output.b[i]) {
+        if(b[i]) {
             auto [u, v, w] = input.edges[i];
-            G[u].push_back({v, w});
-            G[v].push_back({u, w});
+            G[u].push_back({v, w, i});
+            G[v].push_back({u, w, i});
         }    
     }
     return G;
@@ -368,9 +403,10 @@ State State::initState(ll num_unit) {
                 ll dist = Utils::calcSquaredDist(input.nodes[center_node], input.houses[i]);
                 chmax(max_dist, dist);
             }
-            res.output.p[center_node] = isqrt(max_dist);
+            if(max_dist > 0) res.output.p[center_node] = isqrt(max_dist);
         }
     }
+    res.output.b = getDijkstraPath(res.output.p, res.output.b);
     res.score = Utils::calcScore(res.output);
     return res;
 }
