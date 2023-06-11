@@ -34,15 +34,13 @@ namespace debug {
     template<typename T> void print(const std::vector<std::vector<T>>& v) { std::cerr << "\n"; for(int i = 0; i < v.size(); i++) { std::cerr << i << ": "; print(v[i]); } }
 };
 
-// return maximum x such that x^2 <= n
-// requirements: n <= 4e18 
 long long isqrt(long long n) {
     long long res;
     long long l = 0, r = 2000000001;
     while(r - l > 1) {
         long long m = l + (r - l) / 2;
-        if(m * m <= n) l = m;
-        else r = m;
+        if(m * m >= n) r = m;
+        else l = m;
     }
     return r;
 }
@@ -119,6 +117,7 @@ struct State {
     long long score;
     State() : score(-inf) {};
     static State initState(ll num_unit);
+    static State initStateKmeans(ll);
     static State generateState(const State& input_state);
 };
 
@@ -134,7 +133,7 @@ struct IterationControl {
 };
 
 namespace Utils {
-    long long calcScore(const Output& output);
+    long long calcScore(const Output& output, bool check);
     atcoder::dsu getUF(const Output& output);
     vector<bool> getIsConnect(const Output& output);
     vector<vector<tuple<ll,ll,ll>>> generateGraph(const vector<ll>& b);
@@ -144,13 +143,23 @@ namespace Utils {
     vector<ll> getMST();
     pair<vector<ll>,vector<pl>> getDijkstraPath(const vector<ll>& b);
     tuple<ll,ll,ll,ll> getCorners();
+    vector<ll> getMST_result;
+    pair<vector<ll>,vector<pl>> getDijkstraPath_result;
+    tuple<ll,ll,ll,ll> getCorners_result;
 };
 
 int main() {
     toki.init();
     input.read();
+
+    
+    Utils::getMST_result = Utils::getMST();
+    Utils::getDijkstraPath_result = Utils::getDijkstraPath(Utils::getMST_result);
+    Utils::getCorners_result = Utils::getCorners();
+
     State ans = State::initState(5);
     ll best_num_unit = 5;
+    ll best_num_cluster = -1;
     rep(num_unit, 3, 10) {
         State tmp = State::initState(num_unit);
         if(tmp.score > ans.score) {
@@ -158,8 +167,19 @@ int main() {
             best_num_unit = num_unit;
         }
     }
+    while(toki.elapsed() < 1.8) {
+        rep(num_cluster, 5, 30) {
+            State tmp = State::initStateKmeans(num_cluster);
+            if(tmp.score > ans.score) {
+                ans = tmp;
+                best_num_unit = -1;
+                best_num_cluster = num_cluster;
+            }
+        }
+    }
     ans.output.print();
     dump(best_num_unit);
+    dump(best_num_cluster);
     cerr << "[INFO] - main - MyScore = " << ans.score << "\n";
     return 0;
 }
@@ -257,8 +277,8 @@ ll Utils::countCoveredHouse(const Output& output) {
     if(debug::enable) {
         rep(j, 0, input.k) {
             if(!ok[j]) {
-                dump(j);
-                dump(input.houses[j]);
+                //dump(j);
+                //dump(input.houses[j]);
             }
         }
     }
@@ -297,29 +317,124 @@ vector<vector<tuple<ll,ll,ll>>> Utils::generateGraph(const vector<ll>& b) {
     return G;
 }
 
-long long Utils::calcScore(const Output& output) {
+long long Utils::calcScore(const Output& output, bool check) {
     long long res = 0;
-    ll covered_house = Utils::countCoveredHouse(output);
-    dump(covered_house);
-    dump(input.k);
+    //dump(covered_house);
+    //dump(input.k);
     constexpr ll M = 1000000;
     for(auto e: output.p) {
         if(e > 5000) return 0;
     }
-    if(covered_house == input.k) {
+    check = true;
+    if(check) {
+        ll covered_house = Utils::countCoveredHouse(output);
+        if(covered_house == input.k) {
+            ll s = Utils::calcCost(output);
+            res = M + M * M * 100 / (s + M * 10);
+        } else {
+            res = M * (covered_house + 1) / input.k;
+        }
+    } else {
         ll s = Utils::calcCost(output);
         res = M + M * M * 100 / (s + M * 10);
-    } else {
-        res = M * (covered_house + 1) / input.k;
     }
     return res;
 }
 
+State State::initStateKmeans(ll num_cluster) {
+    //dump(num_cluster);
+    vector<ll> cluster(input.k, 0);
+    for(int i = 0; i < input.k; i++) {
+        cluster[i] = ryuka.randll(num_cluster);
+    }
+    //dump(cluster);
+    vector<ll> prev;
+    ll count = 0;
+    const int iter_max = 20;
+    for(int it = 0; it < iter_max; it++) {
+        vector<long long> w_x(num_cluster, 0);
+        vector<long long> w_y(num_cluster, 0);
+        vector<int> num(num_cluster, 0);
+        for(int i = 0; i < input.k; i++) {
+            w_x[cluster[i]] += input.houses[i].first;
+            w_y[cluster[i]] += input.houses[i].second;
+            num[cluster[i]]++;
+        }
+        for(int i = 0; i < num_cluster; i++) {
+            if(num[i] > 0) {
+                w_x[i] /= num[i];
+                w_y[i] /= num[i];
+            }
+        }
+        for(int i = 0; i < input.k; i++) {
+            ll min_dist = inf, min_id = -1;
+            for(int j = 0; j < num_cluster; j++) {
+                ll dist = Utils::calcSquaredDist(input.houses[i], make_pair(w_x[j], w_y[j]));
+                if(dist < min_dist) {
+                    min_dist = dist;
+                    min_id = j;
+                }
+            }
+            assert(min_id != -1);
+            cluster[i] = min_id;
+        }
+        count++;
+    }  
+    //dump(num_cluster);
+    //dump(cluster);
+    vector<vector<ll>> house_group(num_cluster);
+    for(int i = 0; i < input.k; i++) {
+        assert(0 <= cluster[i] && cluster[i] < num_cluster);
+        house_group[cluster[i]].push_back(i);
+    }
+    //dump(house_group);
+    State res;
+    res.output.b = Utils::getMST_result;
+    auto [dist, from] = Utils::getDijkstraPath_result;
+    for(const auto& v: house_group) {
+        ll min_cost = inf, min_id = -1;
+        rep(i, 0, input.n) {
+            ll max_dist = 0;
+            for(auto e: v) {
+                ll tmp = Utils::calcSquaredDist(input.nodes[i], input.houses[e]);
+                chmax(max_dist, tmp);
+            }
+            ll cost = max_dist + dist[i];
+            if(cost < min_cost) {
+                min_cost = cost;
+                min_id = i;
+            }
+        }
+        if(min_id == -1) continue;
+        ll max_dist = 0;
+        for(auto e: v) {
+            ll tmp = Utils::calcSquaredDist(input.nodes[min_id], input.houses[e]);
+            chmax(max_dist, tmp);
+
+        }
+        if(max_dist > 0) res.output.p[min_id] = isqrt(max_dist);
+    }
+    vector<ll> nb(input.m, 0);
+    rep(i, 0, input.n) {
+        if(res.output.p[i] == 0) continue;
+        ll cur = i;
+        while(cur != 0) {
+            auto [nxt, id] = from[cur];
+            nb[id] = 1;
+            cur = nxt;
+        }
+    }
+    res.output.b = nb;
+    res.score = Utils::calcScore(res.output, false);
+    return res;
+} 
+
 State State::initState(ll num_unit) {
     State res;
-    res.output.b = Utils::getMST();
-    auto [dist, from] = Utils::getDijkstraPath(res.output.b);
-    auto [min_x, max_x, min_y, max_y] = Utils::getCorners();
+    res.output.b = Utils::getMST_result;
+    auto [dist, from] = Utils::getDijkstraPath_result;
+    auto [min_x, max_x, min_y, max_y] = Utils::getCorners_result;
+    
     ll len_x = max_x - min_x;
     ll len_y = max_y - min_y;
     ll unit_x = (len_x + num_unit - 1) / num_unit;
@@ -354,10 +469,6 @@ State State::initState(ll num_unit) {
             r_y += unit_y;
         }   
     }
-    dump(x_id_node[num_unit]);
-    dump(y_id_node[num_unit]);
-    dump(x_id_house[num_unit]);
-    dump(y_id_house[num_unit]);
     vector<vector<ll>> node_group((num_unit+1) * (num_unit+1)); 
     vector<vector<ll>> house_group((num_unit+1) * (num_unit+1)); 
     auto f = [&](ll x, ll y) -> ll {
@@ -389,9 +500,9 @@ State State::initState(ll num_unit) {
                 }
             }
             if(center_node == -1) {
-                dump(num_unit);
-                dump(x);
-                dump(y);
+                //dump(num_unit);
+                //dump(x);
+                //dump(y);
                 continue;
             }
             ll max_dist = 0;
@@ -413,13 +524,13 @@ State State::initState(ll num_unit) {
         }
     }
     res.output.b = nb;
-    res.score = Utils::calcScore(res.output);
+    res.score = Utils::calcScore(res.output, true);
     return res;
 }
 
 State State::generateState(const State& input_state) {
     State res = input_state;
-    res.score = Utils::calcScore(res.output);
+    res.score = Utils::calcScore(res.output, true);
     return res;
 }
 
