@@ -118,6 +118,7 @@ struct State {
     State() : score(-inf) {};
     static State initState(ll num_unit);
     static State initStateKmeans(ll);
+    static State initStateKmeans2(ll);
     static State generateState(const State& input_state);
 };
 
@@ -167,8 +168,29 @@ int main() {
             best_num_unit = num_unit;
         }
     }
-    while(toki.elapsed() < 1.8) {
+    rep(num_unit, 3, 10) {
+        State tmp = State::initStateKmeans2(num_unit);
+        if(tmp.score > ans.score) {
+            ans = tmp;
+            best_num_unit = num_unit;
+        }
+    }
+    vector<pl> logs;
+    while(toki.elapsed() < 1.2) {
         rep(num_cluster, 5, 30) {
+            State tmp = State::initStateKmeans(num_cluster);
+            logs.push_back({tmp.score, num_cluster});
+            if(tmp.score > ans.score) {
+                ans = tmp;
+                best_num_unit = -1;
+                best_num_cluster = num_cluster;
+            }
+        }
+    }
+    sort(all(logs));
+    while(toki.elapsed() < 1.8) {
+        rep(i, 0, min<ll>(20, logs.size())) {
+            ll num_cluster = logs[i].second;
             State tmp = State::initStateKmeans(num_cluster);
             if(tmp.score > ans.score) {
                 ans = tmp;
@@ -350,6 +372,134 @@ State State::initStateKmeans(ll num_cluster) {
     //dump(cluster);
     vector<ll> prev;
     ll count = 0;
+    const int iter_max = 40;
+    for(int it = 0; it < iter_max; it++) {
+        vector<long long> w_x(num_cluster, 0);
+        vector<long long> w_y(num_cluster, 0);
+        vector<int> num(num_cluster, 0);
+        for(int i = 0; i < input.k; i++) {
+            w_x[cluster[i]] += input.houses[i].first;
+            w_y[cluster[i]] += input.houses[i].second;
+            num[cluster[i]]++;
+        }
+        for(int i = 0; i < num_cluster; i++) {
+            if(num[i] > 0) {
+                w_x[i] /= num[i];
+                w_y[i] /= num[i];
+            }
+        }
+        for(int i = 0; i < input.k; i++) {
+            ll min_dist = inf, min_id = -1;
+            for(int j = 0; j < num_cluster; j++) {
+                ll dist = Utils::calcSquaredDist(input.houses[i], make_pair(w_x[j], w_y[j]));
+                if(dist < min_dist) {
+                    min_dist = dist;
+                    min_id = j;
+                }
+            }
+            assert(min_id != -1);
+            cluster[i] = min_id;
+        }
+        count++;
+    }  
+    //dump(num_cluster);
+    //dump(cluster);
+    vector<vector<ll>> house_group(num_cluster);
+    for(int i = 0; i < input.k; i++) {
+        assert(0 <= cluster[i] && cluster[i] < num_cluster);
+        house_group[cluster[i]].push_back(i);
+    }
+    //dump(house_group);
+    State res;
+    res.output.b = Utils::getMST_result;
+    auto [dist, from] = Utils::getDijkstraPath_result;
+    for(const auto& v: house_group) {
+        ll min_cost = inf, min_id = -1;
+        rep(i, 0, input.n) {
+            ll max_dist = 0;
+            for(auto e: v) {
+                ll tmp = Utils::calcSquaredDist(input.nodes[i], input.houses[e]);
+                chmax(max_dist, tmp);
+            }
+            ll cost = max_dist + dist[i];
+            if(cost < min_cost) {
+                min_cost = cost;
+                min_id = i;
+            }
+        }
+        if(min_id == -1) continue;
+        ll max_dist = 0;
+        for(auto e: v) {
+            ll tmp = Utils::calcSquaredDist(input.nodes[min_id], input.houses[e]);
+            chmax(max_dist, tmp);
+
+        }
+        if(max_dist > 0) res.output.p[min_id] = isqrt(max_dist);
+    }
+    vector<ll> nb(input.m, 0);
+    rep(i, 0, input.n) {
+        if(res.output.p[i] == 0) continue;
+        ll cur = i;
+        while(cur != 0) {
+            auto [nxt, id] = from[cur];
+            nb[id] = 1;
+            cur = nxt;
+        }
+    }
+    res.output.b = nb;
+    res.score = Utils::calcScore(res.output, false);
+    return res;
+} 
+
+
+State State::initStateKmeans2(ll num_unit) {
+    //dump(num_cluster);
+    auto [min_x, max_x, min_y, max_y] = Utils::getCorners_result;
+    ll len_x = max_x - min_x;
+    ll len_y = max_y - min_y;
+    ll unit_x = (len_x + num_unit - 1) / num_unit;
+    ll unit_y = (len_y + num_unit - 1) / num_unit;
+    vector<ll> x_id_node(input.n, num_unit-1), y_id_node(input.n, num_unit-1);
+    vector<ll> x_id_house(input.k, num_unit-1), y_id_house(input.k, num_unit-1);
+    rep(i, 0, input.n) {
+        ll l_x = min_x;
+        ll l_y = min_y;
+        ll r_x = min_x + unit_x;
+        ll r_y = min_y + unit_y;
+        rep(j, 0, num_unit) {
+            if(l_x <= input.nodes[i].first  && input.nodes[i].first  < r_x) x_id_node[i] = j;
+            if(l_y <= input.nodes[i].second &&input.nodes[i].second < r_y) y_id_node[i] = j;
+            l_x += unit_x;
+            l_y += unit_y;
+            r_x += unit_x;
+            r_y += unit_y;
+        }   
+    }
+    rep(i, 0, input.k) {
+        ll l_x = min_x;
+        ll l_y = min_y;
+        ll r_x = min_x + unit_x;
+        ll r_y = min_y + unit_y;
+        rep(j, 0, num_unit) {
+            if(l_x <= input.houses[i].first  && input.houses[i].first  < r_x) x_id_house[i] = j;
+            if(l_y <= input.houses[i].second && input.houses[i].second < r_y) y_id_house[i] = j;
+            l_x += unit_x;
+            l_y += unit_y;
+            r_x += unit_x;
+            r_y += unit_y;
+        }   
+    }
+    auto f = [&](ll x, ll y) -> ll {
+        return x * (num_unit + 1) + y;
+    }; 
+    vector<ll> cluster(input.k, 0);
+    rep(i, 0, input.k) {
+        cluster[i] = f(x_id_house[i], y_id_house[i]);
+    }
+    ll num_cluster = (num_unit+1) * (num_unit+1);
+    //dump(cluster);
+    vector<ll> prev;
+    ll count = 0;
     const int iter_max = 20;
     for(int it = 0; it < iter_max; it++) {
         vector<long long> w_x(num_cluster, 0);
@@ -428,6 +578,7 @@ State State::initStateKmeans(ll num_cluster) {
     res.score = Utils::calcScore(res.output, false);
     return res;
 } 
+
 
 State State::initState(ll num_unit) {
     State res;
